@@ -1,0 +1,48 @@
+# Snopes dashboard daily refresh. The code and data live in the private dashboards repo; this public repo only holds the schedule
+# (public repos get free Actions minutes). Every step is silent on purpose: this log is public, so nothing about the client is printed.
+# Secrets: DASHBOARDS_TOKEN, RAILRODE_COOKIE, CLOUDFLARE_API_TOKEN, SLACK_WEBHOOK_URL.
+name: Snopes dashboard daily refresh
+on:
+  schedule:
+    - cron: '30 11 * * *'
+  workflow_dispatch:
+concurrency:
+  group: snopes-daily
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: thefeedmedia-org/pod-clickbaiters-dashboards
+          token: ${{ secrets.DASHBOARDS_TOKEN }}
+          fetch-depth: 0
+          path: repo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Refresh
+        working-directory: repo/snopes
+        env:
+          RAILRODE_COOKIE: ${{ secrets.RAILRODE_COOKIE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bb7fa99c972fe59fa9bac073faabb4de
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          git config user.name "TFM dashboards bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set +e
+          (cd app && npm ci --no-audit --no-fund) > /dev/null 2>&1
+          bash scripts/railrode-daily.sh > /dev/null 2>&1
+          code=$?
+          echo "exit $code"
+          [ "$code" = 0 ] || [ "$code" = 3 ]
+      - name: Keep the schedules on
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.DASHBOARDS_TOKEN }}
+        run: for w in snopes-daily.yml il-enrichment-sheet.yml; do gh workflow enable "$w" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || true; done

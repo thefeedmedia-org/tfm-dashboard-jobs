@@ -1,4 +1,4 @@
-# Insight Links enriched-leads Google Sheet, every Monday. Code lives in the private dashboards repo; this public repo only holds the schedule.
+# Insight Links enriched-leads Google Sheet, every Monday, then the dashboard's Apollo enrichment from it. Code lives in the private dashboards repo; this public repo only holds the schedule.
 # Silent on purpose (public log). Secrets: DASHBOARDS_TOKEN, N8N_WEEKLY_SECRET, GWS_CREDENTIALS.
 name: Insight Links enriched leads sheet
 on:
@@ -36,6 +36,28 @@ jobs:
           rm -f "$RUNNER_TEMP/gws.json"
           echo "exit $code"
           exit $code
+      - name: Dashboard enrichment from the sheet
+        # the dashboard counts the same Apollo-enriched profiles (insight-links/scripts/import_sheet_enrichment.py): reads "All leads" with gws,
+        # commits insight-links/data/enriched_tiers.json (hashed keys, no emails); the daily dashboard refresh builds from it
+        working-directory: repo
+        env:
+          GWS_CREDENTIALS: ${{ secrets.GWS_CREDENTIALS }}
+        run: |
+          set +e
+          umask 077
+          printf '%s' "$GWS_CREDENTIALS" > "$RUNNER_TEMP/gws.json"
+          export GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE="$RUNNER_TEMP/gws.json" GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$RUNNER_TEMP/gws" KEYRING_BACKEND=file GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
+          python3 insight-links/scripts/import_sheet_enrichment.py > /dev/null 2>&1
+          code=$?
+          rm -f "$RUNNER_TEMP/gws.json"
+          [ "$code" = 0 ] || { echo "exit $code"; exit $code; }
+          git config user.name "TFM dashboards bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add insight-links/data/enriched_tiers.json
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -q -m "Insight Links: Apollo enrichment from the enrichment sheet $(date -u +%F)"
+          for i in 1 2 3; do git pull -q --rebase origin main > /dev/null 2>&1 && git push -q origin HEAD:main > /dev/null 2>&1 && { echo "pushed"; exit 0; }; sleep 10; done
+          echo "push failed"; exit 1
       - name: Keep the schedules on
         if: always()
         env:

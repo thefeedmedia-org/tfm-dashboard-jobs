@@ -32,7 +32,7 @@ jobs:
           umask 077
           printf '%s' "$GWS_CREDENTIALS" > "$RUNNER_TEMP/gws.json"
           export GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE="$RUNNER_TEMP/gws.json" GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$RUNNER_TEMP/gws" KEYRING_BACKEND=file GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
-          node --experimental-strip-types health-sheet/relationship.mts --export > /dev/null 2>&1
+          node --experimental-strip-types health-sheet/relationship.mts --seed --export > /dev/null 2>&1
           code=$?
           rm -f "$RUNNER_TEMP/gws.json"
           if [ $code -eq 0 ] && [ -n "$(git status --porcelain mood/clients)" ]; then

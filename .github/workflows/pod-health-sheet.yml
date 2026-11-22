@@ -1,0 +1,43 @@
+# Pod Clickbaiters Client Health sheet (monthly red/yellow/green review), every morning after the 09:42 UTC pod.json refresh.
+# Code lives in the private dashboards repo (pod/health-sheet/sync.mts); this public repo only holds the schedule.
+# Silent on purpose (public log). Secrets: DASHBOARDS_TOKEN, GWS_CREDENTIALS (tools@, needs edit access to the sheet).
+name: Pod health sheet
+on:
+  schedule:
+    - cron: '15 10 * * *'
+  workflow_dispatch:
+concurrency:
+  group: pod-health-sheet
+jobs:
+  sheet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: thefeedmedia-org/pod-clickbaiters-dashboards
+          token: ${{ secrets.DASHBOARDS_TOKEN }}
+          path: repo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refresh the sheet
+        working-directory: repo/pod
+        env:
+          GWS_CREDENTIALS: ${{ secrets.GWS_CREDENTIALS }}
+        run: |
+          set +e
+          npm install -g @googleworkspace/cli@0.22.5 --no-audit --no-fund > /dev/null 2>&1
+          umask 077
+          printf '%s' "$GWS_CREDENTIALS" > "$RUNNER_TEMP/gws.json"
+          export GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE="$RUNNER_TEMP/gws.json" GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$RUNNER_TEMP/gws" KEYRING_BACKEND=file GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
+          node --experimental-strip-types health-sheet/sync.mts > /dev/null 2>&1
+          code=$?
+          rm -f "$RUNNER_TEMP/gws.json"
+          echo "exit $code"
+          exit $code
+      - name: Keep the schedules on
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.DASHBOARDS_TOKEN }}
+        run: for w in snopes-daily.yml il-enrichment-sheet.yml pod-health-sheet.yml; do gh workflow enable "$w" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || true; done

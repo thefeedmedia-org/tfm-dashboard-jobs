@@ -1,0 +1,47 @@
+# Pod Clickbaiters Client Health sheet → 📝 Relationship tab saved to pod/mood/clients/<slug>/relationship.md,
+# every morning at 08:40 UTC (05:40 São Paulo), before the 09:00 UTC AI mood read (n8n) that uses those files.
+# Code lives in the private dashboards repo (pod/health-sheet/relationship.mts); this public repo only holds the schedule.
+# Silent on purpose (public log). Secrets: DASHBOARDS_TOKEN (needs push to main), GWS_CREDENTIALS (tools@, reads the sheet).
+name: Pod relationship export
+on:
+  schedule:
+    - cron: '40 8 * * *'
+  workflow_dispatch:
+concurrency:
+  group: pod-relationship-export
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: thefeedmedia-org/pod-clickbaiters-dashboards
+          token: ${{ secrets.DASHBOARDS_TOKEN }}
+          path: repo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Export the tab and commit
+        working-directory: repo/pod
+        env:
+          GWS_CREDENTIALS: ${{ secrets.GWS_CREDENTIALS }}
+        run: |
+          set +e
+          npm install -g @googleworkspace/cli@0.22.5 --no-audit --no-fund > /dev/null 2>&1
+          umask 077
+          printf '%s' "$GWS_CREDENTIALS" > "$RUNNER_TEMP/gws.json"
+          export GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE="$RUNNER_TEMP/gws.json" GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$RUNNER_TEMP/gws" KEYRING_BACKEND=file GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
+          node --experimental-strip-types health-sheet/relationship.mts --seed --export > /dev/null 2>&1
+          code=$?
+          rm -f "$RUNNER_TEMP/gws.json"
+          if [ $code -eq 0 ] && [ -n "$(git status --porcelain mood/clients)" ]; then
+            git config user.name "tfm-dashboard-jobs"
+            git config user.email "tfm-dashboard-jobs@users.noreply.github.com"
+            git add mood/clients
+            git commit -q -m "Pod relationship: Directors' edits from the Client Health sheet $(date -u +%F)"
+            git pull -q --rebase origin main && git push -q origin HEAD:main
+            code=$?
+          fi
+          echo "exit $code"
+          exit $code

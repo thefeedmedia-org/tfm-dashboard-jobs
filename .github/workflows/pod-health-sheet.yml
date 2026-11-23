@@ -40,4 +40,4 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ secrets.DASHBOARDS_TOKEN }}
-        run: for w in snopes-daily.yml il-enrichment-sheet.yml pod-health-sheet.yml pod-relationship-export.yml; do gh workflow enable "$w" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || true; done
+        run: for w in snopes-daily.yml il-enrichment-sheet.yml pod-health-sheet.yml pod-relationship-export.yml watchdog.yml; do gh workflow enable "$w" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || true; done

@@ -1,0 +1,34 @@
+# Watchdog (Lays, Nov 23 2026: "precisamos garantir que tudo rode perfeitamente"). A job that GitHub refuses to start (billing/quota, as on
+# Nov 22-23) never runs its own steps, so it cannot alert. This one checks every other job's last SUCCESS once a day and posts to Slack
+# (SLACK_WEBHOOK_URL) when one is late. Silent when all is well. Public repo: the log only prints job names and ages.
+name: Watchdog
+on:
+  schedule:
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+permissions:
+  actions: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the last success of every job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          now=$(date -u +%s); late=""
+          # workflow file | max hours since its last success
+          for spec in snopes-daily.yml:30 pod-health-sheet.yml:30 pod-relationship-export.yml:30 il-enrichment-sheet.yml:180; do
+            wf=${spec%%:*}; max=${spec##*:}
+            last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs?status=success&per_page=1" -q '.workflow_runs[0].updated_at' 2>/dev/null)
+            if [ -z "$last" ]; then age=99999; else age=$(( (now - $(date -u -d "$last" +%s)) / 3600 )); fi
+            echo "$wf last success ${age}h ago (max ${max}h)"
+            [ "$age" -gt "$max" ] && late="$late\n• $wf: last success ${age}h ago (expected every ${max}h)"
+          done
+          if [ -n "$late" ]; then
+            msg="TFM dashboard jobs: a scheduled job did not run.$late\nCheck https://github.com/$GITHUB_REPOSITORY/actions (a job that never started shows the reason in its annotations)."
+            curl -s -X POST -H 'Content-Type: application/json' --data "$(jq -n --arg t "$(printf "$msg")" '{text:$t}')" "$SLACK_WEBHOOK_URL" > /dev/null
+            exit 1
+          fi
